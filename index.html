@@ -693,7 +693,7 @@ function renderMehr(){
 +'</section>';
   h+='<section class="card conn"><h3>Verbindung</h3><div class="hint" style="margin-bottom:10px">'+(Store.mode==='remote'?'Verbunden mit deinem Google-Konto. Daten liegen in deinem Drive-Ordner „Foodtracker“, die Auswertung läuft über Gemini.':'Nicht verbunden. Die App speichert nur in diesem Browser. Füge den Verbindungscode ein (aus der Datei „_zugang.txt“ im Drive-Ordner).')+'</div>'
     +(Store.mode==='remote'?'<button class="btn ghost" data-act="disconnect">Verbindung trennen</button>':'<div class="field"><label for="conn-code">Verbindungscode</label><textarea id="conn-code" rows="3" placeholder="c=…"></textarea></div><button class="btn accent" data-act="connect">Verbinden</button>')+'</section>';
-  h+='<section class="card"><h3>Daten</h3><div class="hint" style="margin-bottom:10px">'+(Store.mode==='remote'?'Gespeichert in deinem Drive-Ordner „Foodtracker/_daten“, privat in deinem Google-Konto.':'Gespeichert nur in diesem Browser.')+'</div><div style="display:grid;gap:8px"><button class="btn ghost" data-act="export">Tagebuch als CSV exportieren</button><button class="btn ghost" data-act="backup">Sicherung als Datei speichern (JSON)</button></div></section>';
+  h+='<section class="card"><h3>Daten</h3><div class="hint" style="margin-bottom:10px">'+(Store.mode==='remote'?'Gespeichert in deinem Drive-Ordner „Foodtracker/_daten“, privat in deinem Google-Konto.':'Gespeichert nur in diesem Browser.')+'</div><div style="display:grid;gap:8px"><button class="btn ghost" data-act="export">Tagebuch als CSV exportieren</button><button class="btn ghost" data-act="backup">Sicherung als Datei speichern (JSON)</button><button class="btn ghost" data-act="restore">Früheren Test-Import wiederherstellen</button></div></section>';
   $('#app').innerHTML=h;
 }
 
@@ -1028,6 +1028,21 @@ document.addEventListener('click',async function(ev){
       return;
     }
     if(a==='disconnect'){try{localStorage.removeItem('ft-conn')}catch(e){}location.reload();return}
+    if(a==='restore'){
+      try{
+        var rr=await (await fetch('restore.json',{cache:'no-store'})).json(),n=0;
+        for(var k in rr.docs){
+          var cur=await Store.get(k),inc=rr.docs[k];
+          if(k==='drive'){cur=cur||{done:{}};cur.done=Object.assign({},inc.done||{},cur.done||{});Store.save(k,cur);continue}
+          cur=cur||{entries:[]};cur.entries=cur.entries||[];
+          (inc.entries||[]).forEach(function(e){if(!cur.entries.some(function(x){return x.id===e.id||(e.src&&x.src===e.src)})){cur.entries.push(e);n++}});
+          Store.save(k,cur);
+        }
+        await new Promise(function(r){setTimeout(r,900)});await Store.flush();
+        toast(n+' Einträge wiederhergestellt');setTimeout(function(){location.reload()},1200);
+      }catch(e){toast('Wiederherstellung nicht möglich')}
+      return;
+    }
     if(a==='scan'){startScan();return}
     if(a==='scanstop'){stopScan();return}
     if(a==='scanok'){var mv=($('#scanman')||{}).value;if(mv)onCode(String(mv).replace(/\D/g,''));return}
