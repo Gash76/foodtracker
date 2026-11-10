@@ -524,7 +524,7 @@ function renderHeute(){
       h+='<section class="meal"><header><h3>'+m[1]+'</h3><span>'+fmt(sum)+' kcal</span></header>';
       es.forEach(function(e){
         var pl2=e.done===false;
-        h+='<div class="entry'+(pl2?' planned':'')+'" data-edit="'+e.id+'" role="button" tabindex="0"><span class="t">'+esc(e.time)+'</span><span class="n"><b>'+esc(e.name)+(e.ai?'<span class="kitag">KI</span>':'')+'</b><small>E '+f1(e.p)+' · K '+f1(e.c)+' · F '+f1(e.f)+'</small>'
+        h+='<div class="entry'+(pl2?' planned':'')+'" data-edit="'+e.id+'" role="button" tabindex="0"><span class="t">'+esc(e.time)+'</span><span class="n"><b>'+esc(e.name)+(e.ai?'<span class="kitag">KI</span>':'')+'</b><small>'+(e.m&&!(e.parts&&e.parts.length)?esc(e.m)+' · ':'')+'E '+f1(e.p)+' · K '+f1(e.c)+' · F '+f1(e.f)+'</small>'
           +(e.parts&&e.parts.length>1?'<small class="pl">'+e.parts.map(function(x){return esc(x.n)+(x.m?' '+esc(x.m):'')+' ('+fmt(x.kcal)+')'}).join(' · ')+'</small>':'')+'</span>'
           +'<span class="k-wrap"><span class="k">'+fmt(e.kcal)+'</span>'+(pl2?'<button class="check" data-done="'+e.id+'" aria-label="Als gegessen markieren"></button>':'')+'</span></div>';
       });
@@ -766,6 +766,7 @@ function aiStep(){
     if(a.note)h+='<div class="hint">Schätzung. '+esc(a.note)+'</div>';
     h+='<div class="fixrow" style="margin-top:12px"><div class="field" style="margin:0"><label for="ai-fix">Korrigieren per Text</label><input id="ai-fix" value="'+esc(a.fix)+'" placeholder="z. B. nicht Rind, sondern 300 g Hähnchen"></div><button class="btn ghost" data-act="aifix" '+(a.busy?'disabled':'')+'>Anpassen</button></div>';
     h+='<div class="grid2" style="margin-top:12px"><div class="field"><label for="ai-time">Uhrzeit</label><input id="ai-time" type="time" value="'+esc(a.time||t)+'"></div><div class="field"><label for="ai-meal">Mahlzeit</label>'+mealSelect(a.meal||mealByTime(a.time||t),'ai-meal')+'</div></div>';
+    h+='<label class="hint" style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" id="ai-fav"'+(a.fav?' checked':'')+'> Auch als Favorit speichern</label>';
     h+='<button class="btn accent" style="width:100%" data-act="aisave" '+(a.parts.length?'':'disabled')+'>'+(Sh.mode==='plan'?'Zum Plan hinzufügen':'Eintragen')+'</button></div>';
   }
   return h;
@@ -785,8 +786,11 @@ function drawSheet(){
     var e=Sh.entry;
     if(!Sh.editId&&Sh.mode!=='lib')h+=segHtml();
     h+='<div class="field"><label for="f-name">Name</label><input id="f-name" value="'+esc(e.name)+'" placeholder="z. B. Linseneintopf" autocomplete="off"></div>';
-    if(Sh.mode==='lib')h+='<div class="field"><label for="f-unit">Portion</label><input id="f-unit" value="'+esc(e.unit||'1 Portion')+'" placeholder="1 Portion"></div>';
-    if(Sh.base&&Sh.mode!=='lib')h+='<div class="field"><label for="f-mult">Portionen</label><input id="f-mult" inputmode="decimal" value="'+(Sh.mult||1)+'"></div>';
+    var hasParts=Sh.mode!=='lib'&&e.parts&&e.parts.length;
+    if(Sh.mode==='lib')h+='<div class="field"><label for="f-unit">Menge</label><input id="f-unit" data-amt="1" value="'+esc(e.unit||'1 Portion')+'" placeholder="z. B. 100 g, 200 ml, 1 Portion"></div>';
+    else if(!hasParts)h+='<div class="field"><label for="f-amt">Menge</label><input id="f-amt" data-amt="1" value="'+esc(e.m||'1 Portion')+'" placeholder="z. B. 100 g, 200 ml, 1 Portion"></div>';
+    if(!hasParts)h+='<div class="hint" style="margin:-4px 0 10px">Ändere die Zahl (z. B. 100 g auf 200 g), dann rechnet die App Kalorien und Nährwerte um, sobald du das Feld verlässt.</div>';
+    Sh.amtBase=hasParts?null:{m:Sh.mode==='lib'?(e.unit||'1 Portion'):(e.m||'1 Portion'),kcal:num(e.kcal),p:num(e.p),c:num(e.c),f:num(e.f)};
     h+=macroFields(e);
     if(Sh.mode!=='lib')h+='<div class="grid2"><div class="field"><label for="f-time">Uhrzeit</label><input id="f-time" type="time" value="'+esc(e.time)+'"></div><div class="field"><label for="f-meal">Mahlzeit</label>'+mealSelect(e.meal)+'</div></div>';
     if(Sh.mode!=='lib')h+=partsEditor();
@@ -795,6 +799,7 @@ function drawSheet(){
     }
     if(!Sh.editId&&Sh.mode!=='lib'&&!Sh.base)h+='<label class="hint" style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" id="f-fav" checked> Als Favorit speichern</label>';
     if(Sh.mode==='log'&&!Sh.editId&&S.date>ymd(new Date()))h+='<div class="hint" style="margin-bottom:8px">Dieser Tag liegt in der Zukunft, der Eintrag wird als geplant markiert.</div>';
+    if(Sh.editId&&Sh.mode!=='lib')h+='<button class="btn ghost" style="width:100%;margin-bottom:10px" data-act="favfromentry">Als Favorit speichern</button>';
     h+='<div class="actions">'+(Sh.editId?'<button class="btn ghost" data-act="sheetdelete">Löschen</button>':'')+'<button class="btn accent" data-act="sheetsave">'+(Sh.editId?'Speichern':(Sh.mode==='lib'?'Speichern':'Eintragen'))+'</button></div>';
   }
   h+='</div></div>';
@@ -809,10 +814,35 @@ function pickList(){
   if(!items.length)return '<div class="hint" style="padding:14px 0">Keine Favoriten gefunden. Wähle „Manuell“ oder „KI“.</div>';
   return items.map(function(i){return '<div class="favrow"><button class="nm" data-pick="'+i.id+'" style="text-align:left"><b>'+esc(i.name)+(i.example?'<span class="tag">Beispiel</span>':'')+'</b><small>'+esc(i.unit||'1 Portion')+' · '+fmt(i.kcal)+' kcal</small></button><button class="plus" data-quick="'+i.id+'" aria-label="Sofort eintragen: '+esc(i.name)+'">+</button></div>'}).join('');
 }
+function amtParse(x){var m=/^\s*(\d+(?:[.,]\d+)?)\s*(.*)$/.exec(String(x||''));return m?{n:parseFloat(m[1].replace(',','.')),u:m[2].trim().toLowerCase()}:null}
+function amtRebase(val){
+  var g=function(id){var n=$(id);return n?num(n.value):0};
+  Sh.amtBase={m:val,kcal:g('#f-kcal'),p:g('#f-p'),c:g('#f-c'),f:g('#f-f')};
+}
+function amtChanged(el){
+  var b=Sh&&Sh.amtBase;if(!b)return;
+  var a=amtParse(b.m),c=amtParse(el.value);
+  if(!c||!(c.n>0))return;
+  if(!a||!(a.n>0)||(c.u&&a.u!==c.u)){amtRebase(el.value);return}
+  var k=c.n/a.n,set=function(id,v){var n=$(id);if(n)n.value=v};
+  set('#f-kcal',r0(b.kcal*k));set('#f-p',r1(b.p*k));set('#f-c',r1(b.c*k));set('#f-f',r1(b.f*k));
+  if(!c.u&&a.u)el.value=String(el.value).trim()+' '+b.m.replace(/^\s*[\d.,]+\s*/,'');
+}
+function favUpsert(o){
+  var ex=S.library.items.filter(function(i){return i.name.toLowerCase()===o.name.toLowerCase()})[0];
+  if(ex){Object.assign(ex,o);if(!o.parts)delete ex.parts;delete ex.example;return ex}
+  var n=Object.assign({id:uid(),lastUsed:''},o);if(!n.parts)delete n.parts;S.library.items.push(n);return n;
+}
+function favFromParts(parts){
+  var t=partsTotal(parts);
+  return {name:partsName(parts),unit:parts.length===1?(parts[0].m||'1 Portion'):'1 Portion',kcal:r0(t.kcal),p:r1(t.p),c:r1(t.c),f:r1(t.f),parts:parts.length>1?clone(parts):null};
+}
 function blankEntry(){var t=nowT();return {name:'',kcal:'',p:'',c:'',f:'',time:t,meal:mealByTime(t)}}
 function newItemFrom(lib,mult){
   mult=mult||1;
-  return {name:lib.name,kcal:r0(lib.kcal*mult),p:r1(lib.p*mult),c:r1(lib.c*mult),f:r1(lib.f*mult)};
+  var o={name:lib.name,kcal:r0(lib.kcal*mult),p:r1(lib.p*mult),c:r1(lib.c*mult),f:r1(lib.f*mult)};
+  if(lib.parts&&lib.parts.length){o.parts=clone(lib.parts);o.ai=true}else o.m=lib.unit||'1 Portion';
+  return o;
 }
 async function commitAdd(base,time,meal,fromLib){
   var item=Object.assign({id:uid(),time:time,meal:meal},base);
@@ -831,7 +861,7 @@ function readForm(){
   if(te)v.time=te.value||nowT();
   if(me)v.meal=me.value;
   var u=$('#f-unit');if(u)v.unit=(u.value||'1 Portion').trim();
-  var mu=$('#f-mult');v.mult=mu?(num(mu.value)||1):1;
+  var am=$('#f-amt');if(am)v.amt=(am.value||'').trim();
   return v;
 }
 function partsMatch(parts,v){
@@ -897,9 +927,8 @@ document.addEventListener('click',async function(ev){
   if(D.pick){
     var lib=S.library.items.filter(function(i){return i.id===D.pick})[0];if(!lib)return;
     var t=nowT();
-    Sh.step='form';Sh.base=lib;Sh.mult=1;Sh.entry=Object.assign({time:t,meal:mealByTime(t)},newItemFrom(lib,1));
+    Sh.step='form';Sh.base=lib;Sh.entry=Object.assign({time:t,meal:mealByTime(t)},newItemFrom(lib,1));
     drawSheet();
-    var mu=$('#f-mult');if(mu){mu.oninput=function(){var m=num(mu.value)||1;var n=newItemFrom(Sh.base,m);$('#f-kcal').value=n.kcal;$('#f-p').value=n.p;$('#f-c').value=n.c;$('#f-f').value=n.f;Sh.mult=m}}
     return;
   }
   if(D.quick){
@@ -939,15 +968,17 @@ document.addEventListener('click',async function(ev){
       var fx2=$('#ai-fix');if(fx2)ai2.fix=fx2.value;
       var t2=($('#ai-time')&&$('#ai-time').value)||nowT(),m2=($('#ai-meal')&&$('#ai-meal').value)||mealByTime(t2);
       var tot=partsTotal(ai2.parts);
-      await commitAdd({name:partsName(ai2.parts),kcal:tot.kcal,p:r1(tot.p),c:r1(tot.c),f:r1(tot.f),parts:clone(ai2.parts),ai:true},t2,m2,null);
-      closeSheet();render();toast('Eingetragen');return;
+      var favAi=null,cbF=$('#ai-fav');
+      if(cbF&&cbF.checked)favAi=favUpsert(favFromParts(ai2.parts));
+      await commitAdd({name:partsName(ai2.parts),kcal:tot.kcal,p:r1(tot.p),c:r1(tot.c),f:r1(tot.f),parts:clone(ai2.parts),ai:true},t2,m2,favAi);
+      closeSheet();render();toast(favAi?'Eingetragen und als Favorit gespeichert':'Eingetragen');return;
     }
     if(a==='aifixentry'){
       var inp=$('#ai-fix2'),ins=inp?inp.value.trim():'';
       if(!ins){Sh.fixErr='Schreibe, was geändert werden soll.';drawSheet();return}
       var v0=readForm(),shR=Sh;
       var cur=(Sh.entry.parts&&partsMatch(Sh.entry.parts,v0))?clone(Sh.entry.parts):[{n:v0.name||'Eintrag',m:'',kcal:r0(v0.kcal),p:r1(v0.p),c:r1(v0.c),f:r1(v0.f)}];
-      Object.assign(Sh.entry,{name:v0.name,kcal:v0.kcal,p:v0.p,c:v0.c,f:v0.f,time:v0.time,meal:v0.meal});
+      Object.assign(Sh.entry,{name:v0.name,kcal:v0.kcal,p:v0.p,c:v0.c,f:v0.f,time:v0.time,meal:v0.meal});if(v0.amt!==undefined)Sh.entry.m=v0.amt;
       Sh.fixBusy=true;Sh.fixErr='';drawSheet();
       try{
         var rr=await aiRevise(cur,ins);
@@ -964,7 +995,7 @@ document.addEventListener('click',async function(ev){
     if(a==='sheetsave'){
       var v=readForm();if(!v.name){toast('Bitte einen Namen eingeben');return}
       if(Sh.mode==='lib'){
-        if(Sh.editId){var li2=S.library.items.filter(function(i){return i.id===Sh.editId})[0];Object.assign(li2,{name:v.name,unit:v.unit,kcal:v.kcal,p:v.p,c:v.c,f:v.f});delete li2.example}
+        if(Sh.editId){var li2=S.library.items.filter(function(i){return i.id===Sh.editId})[0];Object.assign(li2,{name:v.name,unit:v.unit,kcal:v.kcal,p:v.p,c:v.c,f:v.f});delete li2.example;if(li2.parts&&!partsMatch(li2.parts,v))delete li2.parts}
         else S.library.items.push({id:uid(),name:v.name,unit:v.unit||'1 Portion',kcal:v.kcal,p:v.p,c:v.c,f:v.f,lastUsed:''});
         saveLibrary();closeSheet();render();return;
       }
@@ -972,17 +1003,25 @@ document.addEventListener('click',async function(ev){
         var arr=Sh.mode==='plan'?(S.plan.days[S.planDay]||[]):dayDoc(S.date).entries;
         var tgt=arr.filter(function(e){return e.id===Sh.editId})[0];
         Object.assign(tgt,{name:v.name,kcal:v.kcal,p:v.p,c:v.c,f:v.f,time:v.time,meal:v.meal});
-        if(partsMatch(Sh.entry.parts,v)){tgt.parts=Sh.entry.parts;tgt.ai=true}else{delete tgt.parts;delete tgt.ai}
+        if(partsMatch(Sh.entry.parts,v)){tgt.parts=Sh.entry.parts;tgt.ai=true;delete tgt.m}else{delete tgt.parts;delete tgt.ai;tgt.m=v.amt||tgt.m||'1 Portion'}
         if(Sh.mode==='plan')savePlan();else saveDay(S.date);
         closeSheet();render();return;
       }
       var fromLib=Sh.base||null;
       if(!fromLib&&$('#f-fav')&&$('#f-fav').checked){
-        fromLib={id:uid(),name:v.name,unit:'1 Portion',kcal:v.kcal,p:v.p,c:v.c,f:v.f,lastUsed:''};
-        S.library.items.push(fromLib);
+        fromLib=favUpsert({name:v.name,unit:v.amt||'1 Portion',kcal:v.kcal,p:v.p,c:v.c,f:v.f});
       }
-      await commitAdd({name:v.name,kcal:v.kcal,p:v.p,c:v.c,f:v.f},v.time,v.meal,fromLib);
+      var nb={name:v.name,kcal:v.kcal,p:v.p,c:v.c,f:v.f};
+      if(partsMatch(Sh.entry&&Sh.entry.parts,v)){nb.parts=clone(Sh.entry.parts);nb.ai=true}else nb.m=v.amt||'1 Portion';
+      await commitAdd(nb,v.time,v.meal,fromLib);
       closeSheet();render();return;
+    }
+    if(a==='favfromentry'){
+      var vf=readForm();if(!vf.name){toast('Bitte einen Namen eingeben');return}
+      var ps=Sh.entry.parts,fo;
+      if(partsMatch(ps,vf)){fo=favFromParts(ps);fo.name=vf.name}
+      else fo={name:vf.name,unit:vf.amt||'1 Portion',kcal:vf.kcal,p:vf.p,c:vf.c,f:vf.f};
+      favUpsert(fo);saveLibrary();toast('Als Favorit gespeichert: '+vf.name);return;
     }
     if(a==='sheetdelete'){
       if(Sh.mode==='lib'){S.library.items=S.library.items.filter(function(i){return i.id!==Sh.editId});saveLibrary()}
@@ -1073,6 +1112,9 @@ document.addEventListener('input',function(ev){
 });
 document.addEventListener('change',function(ev){
   var t=ev.target;
+  if(t.id==='ai-fav'&&Sh&&Sh.ai){Sh.ai.fav=t.checked;return}
+  if(t.dataset&&t.dataset.amt&&Sh){amtChanged(t);return}
+  if((t.id==='f-kcal'||t.id==='f-p'||t.id==='f-c'||t.id==='f-f')&&Sh&&Sh.amtBase){var af=$('[data-amt]');if(af)amtRebase(af.value);return}
   if(!(t.dataset&&t.dataset.pf==='m'&&Sh))return;
   var row=t.closest('.prt'),arr=row&&ctxParts(row);if(!arr)return;
   var i=+row.dataset.pi,x=arr[i];if(!x)return;
