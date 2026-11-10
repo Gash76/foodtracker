@@ -337,6 +337,75 @@ function sumDay(d){
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
   });return t;
 }
+S.garmin=null;
+async function loadGarmin(){
+  if(Store.mode!=='remote')return false;
+  delete Store.mem['garmin'];
+  var g=await Store.get('garmin');
+  if(g&&g.days){S.garmin=g;return true}
+  return false;
+}
+function gDay(date){return (S.garmin&&S.garmin.days&&S.garmin.days[date])||null}
+function gWeights(){return ((S.garmin&&S.garmin.weights)||[]).filter(function(w){return w.kg>0})}
+function avgBurn(n){
+  var t=ymd(new Date()),sum=0,c=0,sr=0;
+  for(var i=1;i<=n;i++){var d=gDay(addDays(t,-i));if(d&&d.t>0){sum+=d.t;sr+=d.r;c++}}
+  return {avg:c?sum/c:0,rest:c?sr/c:0,n:c};
+}
+function burnHtml(date){
+  var g=gDay(date),today=ymd(new Date()),h='';
+  if(!S.garmin||date>today)return '';
+  var set=S.settings,eaten=sumDay(dayDoc(date)).kcal;
+  h+='<section class="card label" style="margin-top:14px"><h3>Garmin-Verbrauch</h3>';
+  var row=function(a,b,cls){return '<div class="sub"><span>'+a+'</span><b'+(cls?' class="'+cls+'"':'')+'>'+b+'</b></div>'};
+  if(!g){return h+'<div class="hint">Für diesen Tag liegen noch keine Garmin-Werte vor.</div></section>'}
+  var isToday=date===today;
+  h+=row(isToday?'Verbrauch bisher':'Verbrauch',fmt(g.t)+' kcal <small style="font-weight:400">(Aktiv '+fmt(g.a)+' · Ruhe '+fmt(g.r)+')</small>');
+  var proj=g.t;
+  if(isToday){
+    var ab=avgBurn(7),rest=ab.n>=3?ab.rest:(num(set.rest)||2400);
+    proj=Math.max(g.t,g.a+rest);
+    h+=row('Hochrechnung Tagesende','≈ '+fmt(proj)+' kcal');
+  }
+  var base=num(set.active)||514,bonus=Math.max(0,g.a-base),goal=set.kcal+bonus;
+  h+=row('Aktiv-Bonus',bonus>0?'+'+fmt(bonus)+' kcal':'0 kcal');
+  var left=goal-eaten;
+  h+=row('Angepasstes Ziel',fmt(goal)+' kcal');
+  h+=row(left>=0?'Noch übrig':'Darüber','<span style="font-size:1.15em">'+fmt(Math.abs(left))+' kcal</span>',left<0?'over':(eaten>0?'good':''));
+  if(eaten>0){
+    var bal=eaten-proj;
+    h+=row(isToday?(bal<=0?'Voraussichtliches Defizit':'Voraussichtlicher Überschuss'):(bal<=0?'Defizit':'Überschuss'),fmt(Math.abs(bal))+' kcal',bal<=0?'good':'over');
+  }
+  h+='<div class="hint" style="margin-top:8px">'+(isToday?'Der Tag läuft noch: Garmin zählt den Verbrauch bis jetzt, die Hochrechnung nimmt deinen üblichen Ruheumsatz für den ganzen Tag. ':'')+'Der Aktiv-Bonus ist deine Aktivität über dem Durchschnitt von '+fmt(base)+' kcal und erhöht dein Ziel. Weniger Aktivität senkt es nicht.</div></section>';
+  return h;
+}
+function garminWeightCard(){
+  var ws=gWeights();if(ws.length<2)return null;
+  var today=ymd(new Date()),from=addDays(today,-90),pts=ws.filter(function(w){return w.d>=from});
+  if(pts.length<2)pts=ws.slice(-10);
+  var W=340,H=190,pl=40,pr=8,pt=14,pb=26;
+  var t0=parseYmd(pts[0].d).getTime(),t1=Math.max(parseYmd(pts[pts.length-1].d).getTime(),parseYmd(today).getTime());
+  var vs=pts.map(function(w){return w.kg}),mn=Math.floor(Math.min.apply(null,vs)-.5),mx=Math.ceil(Math.max.apply(null,vs)+.5);
+  var px=function(d){return pl+(W-pl-pr)*(parseYmd(d).getTime()-t0)/((t1-t0)||1)},py=function(v){return pt+(H-pt-pb)*(1-(v-mn)/(mx-mn))};
+  var trend=pts.map(function(w){
+    var lo=addDays(w.d,-6),sel=pts.filter(function(x){return x.d>=lo&&x.d<=w.d});
+    return {d:w.d,kg:sel.reduce(function(a,x){return a+x.kg},0)/sel.length};
+  });
+  var svg='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Gewichtsverlauf">';
+  for(var i=0;i<=3;i++){var v=mn+(mx-mn)*i/3,y=py(v);svg+='<line class="ax" x1="'+pl+'" x2="'+(W-pr)+'" y1="'+y+'" y2="'+y+'" style="opacity:.35"/><text x="'+(pl-5)+'" y="'+(y+4)+'" text-anchor="end">'+f1(v)+'</text>'}
+  pts.forEach(function(w){svg+='<circle cx="'+px(w.d)+'" cy="'+py(w.kg)+'" r="2.5" fill="var(--muted)" opacity=".7"/>'});
+  svg+='<polyline points="'+trend.map(function(x){return px(x.d)+','+py(x.kg)}).join(' ')+'" fill="none" stroke="var(--p)" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>';
+  var lw=pts[pts.length-1],lt=trend[trend.length-1];
+  svg+='<circle cx="'+px(lt.d)+'" cy="'+py(lt.kg)+'" r="4.5" fill="var(--p)"/>';
+  svg+='<text x="'+pl+'" y="'+(H-7)+'">'+dshort(pts[0].d).slice(0,-5)+'</text><text x="'+(W-pr)+'" y="'+(H-7)+'" text-anchor="end">heute</text></svg>';
+  var ref=trend.filter(function(x){return x.d<=addDays(lw.d,-30)}).pop()||trend[0];
+  var diff=lt.kg-ref.kg,days=Math.max(1,Math.round((parseYmd(lw.d)-parseYmd(ref.d))/864e5));
+  var goal=num(S.settings.goalW);
+  var h='<section class="card"><h3>Gewicht</h3>';
+  h+='<div class="stat"><div><b>'+f1(lw.kg)+'</b><span>zuletzt '+dshort(lw.d).slice(0,-5)+' (kg)</span></div><div><b class="'+(diff<=0?'good':'over')+'">'+(diff>0?'+':'−')+f1(Math.abs(diff))+'</b><span>Trend in '+days+' Tagen</span></div>'+(goal>0?'<div><b>'+f1(Math.max(0,lt.kg-goal))+'</b><span>kg bis '+f1(goal)+'</span></div>':'')+'</div>';
+  h+=svg+'<div class="hint">Punkte: einzelne Wägungen von deiner Garmin-Waage. Linie: Durchschnitt der letzten 7 Tage, er zeigt die Richtung ohne das tägliche Auf und Ab.</div></section>';
+  return h;
+}
 function dayDoc(date){if(!S.days[date])S.days[date]={entries:[],weight:null};return S.days[date]}
 function saveDay(date){Store.save('d-'+date,S.days[date])}
 function saveSettings(){Store.save('settings',S.settings)}
@@ -508,6 +577,7 @@ function renderHeute(){
     +macroRow('Eiweiß',t.p,g.p,'var(--p)')+macroRow('Kohlenhydr.',t.c,g.c,'var(--c)')+macroRow('Fett',t.f,g.f,'var(--f)')
     +(t.pk>0?'<div class="planned-note">Noch geplant, nicht gegessen: <span class="num">'+fmt(t.pk)+' kcal</span></div>':'')
     +'</section>';
+  h+=burnHtml(S.date);
   h+='<div class="syncline'+(S.sync.busy?' busy':'')+'" id="sync">'+syncHtml()+'</div>';
   var wi=wdIdx(S.date),pl=(S.plan.days[wi]||[]);
   if(!d.entries.length&&pl.length){
@@ -556,6 +626,7 @@ function weekHtml(dates){
   });
   svg+='<line class="gl" x1="'+pl+'" x2="'+W+'" y1="'+sy(g.kcal)+'" y2="'+sy(g.kcal)+'"/><text x="'+(pl-4)+'" y="'+(sy(g.kcal)+4)+'" text-anchor="end">Ziel</text></svg>';
   h+='<section class="card"><h3>Kalorien pro Tag</h3>'+svg+'<div class="hint">Gestrichelt: dein Tagesziel. Grün: darunter, rot: darüber. Nur gegessene Einträge zählen.</div></section>';
+  var gc=garminWeightCard();if(gc){h+=gc;return h}
   var wp=dates.map(function(s){return {s:s,w:S.days[s].weight}}).filter(function(o){return o.w>0});
   h+='<section class="card"><h3>Gewicht</h3>';
   var td=dayDoc(S.date);
@@ -583,6 +654,7 @@ async function weightLog(){
   var all=await Store.all(),log={};
   Object.keys(all).forEach(function(k){if(k.indexOf('d-')===0&&all[k]&&all[k].weight>0)log[k.slice(2)]=all[k].weight});
   Object.keys(S.days).forEach(function(k){var w=S.days[k]&&S.days[k].weight;if(w>0)log[k]=w;else delete log[k]});
+  gWeights().forEach(function(w){log[w.d]=w.kg});
   return log;
 }
 function avgIntake(n){
@@ -592,7 +664,7 @@ function avgIntake(n){
 }
 function dshort(s){var d=parseYmd(s);return d.getDate()+'.'+(d.getMonth()+1)+'.'+d.getFullYear()}
 async function forecastHtml(date){
-  var g=S.settings,tdee=(num(g.rest)+num(g.active))||2920,goal=num(g.goalW);
+  var g=S.settings,gb=avgBurn(14),tdee=gb.n>=3?gb.avg:((num(g.rest)+num(g.active))||2920),goal=num(g.goalW);
   var log=await weightLog(),ks=Object.keys(log).sort(),wDate,w0;
   if(ks.length){wDate=ks[ks.length-1];w0=log[wDate]}else{wDate=ymd(new Date());w0=num(g.w0)}
   var a7=avgIntake(7),a30=avgIntake(30),use=a7.days>=3?a7:(a30.days>0?a30:null);
@@ -604,7 +676,7 @@ async function forecastHtml(date){
   var h='<section class="card label" style="margin-top:14px"><h3>Prognose für '+esc(dl.main==='Morgen'?'Morgen':dl.main)+' ('+dshort(date)+')</h3>';
   h+=row('Ausgangsgewicht',f1(w0)+' kg <small style="font-weight:400">('+(ks.length?'am '+dshort(wDate):'Startgewicht')+')</small>');
   h+=row('Aufnahme',basis);
-  h+=row('Verbrauch',fmt(tdee)+' kcal');
+  h+=row('Verbrauch',fmt(tdee)+' kcal'+(gb.n>=3?' <small style="font-weight:400">(Garmin Ø '+gb.n+' Tage)</small>':''));
   h+=row('Bilanz pro Tag',(bal>0?'+':'−')+fmt(Math.abs(bal))+' kcal');
   h+=row('Erwartetes Gewicht','<span style="font-size:1.15em">'+f1(exp)+' kg</span>');
   h+=row('Zielgewicht',f1(goal)+' kg');
@@ -1210,8 +1282,9 @@ function initCaps(){
 async function boot(){
   render0();
   initCaps();
-  var pre=[Store.get('settings'),Store.get('library'),Store.get('plan'),Store.get('drive'),Store.get('d-'+S.date)];
+  var pre=[Store.get('settings'),Store.get('library'),Store.get('plan'),Store.get('drive'),Store.get('d-'+S.date),Store.get('garmin')];
   var res=await Promise.all(pre.slice(0,4));
+  try{var gg=await pre[5];if(gg&&gg.days)S.garmin=gg}catch(e){}
   if(Store.mode==='remote'&&Store.failed&&!res[0]){
     $('#app').innerHTML='<div class="empty"><b>Keine Verbindung</b>'+(Store.failCode==='auth'?'Der Zugang wurde abgelehnt. Prüfe die Verbindung unter Mehr.':'Der Server ist gerade nicht erreichbar.')+'<br><button class="btn accent" style="margin-top:12px" id="retry">Erneut versuchen</button> <button class="btn ghost" style="margin-top:12px" data-tab="mehr">Mehr</button></div>';
     $('#retry').onclick=function(){location.reload()};
@@ -1228,7 +1301,7 @@ async function boot(){
   if(Store.mode==='remote'){syncDrive();Store.flush()}
   else{toast('Nicht verbunden: Verbindungscode unter Mehr einfügen')}
   document.addEventListener('visibilitychange',function(){
-    if(document.visibilityState==='visible'&&Store.mode==='remote'){Store.flush();syncDrive()}
+    if(document.visibilityState==='visible'&&Store.mode==='remote'){Store.flush();syncDrive();loadGarmin().then(function(ok){if(ok&&S.tab==='heute'&&!Sh)render()})}
   });
   window.addEventListener('online',function(){Store.flush();syncDrive()});
   if('serviceWorker' in navigator){try{navigator.serviceWorker.register('sw.js')}catch(e){}}
