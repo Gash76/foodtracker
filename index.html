@@ -337,7 +337,7 @@ function sumDay(d){
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
   });return t;
 }
-var APP_V='2026-11-12';
+var APP_V='2026-11-12b';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;
@@ -732,6 +732,12 @@ function renderPlan(){
     h+='<div class="entry" data-pedit="'+e.id+'" role="button" tabindex="0"><span class="t">'+esc(e.time)+'</span><span class="n"><b>'+esc(e.name)+'</b><small>'+esc(MEALS.filter(function(m){return m[0]===e.meal})[0][1])+' · E '+f1(e.p)+' · K '+f1(e.c)+' · F '+f1(e.f)+'</small></span><span class="k">'+fmt(e.kcal)+'</span></div>';
   });
   h+='</section>';
+  if(!isD&&items.length){
+    var cpt=S.cpTo||[];
+    h+='<section class="card"><h3>Plan kopieren</h3><div class="hint" style="margin-bottom:8px">Kopiert die '+items.length+' Einträge von <b>'+pname(S.planDay)+'</b> auf die gewählten Tage. Ein vorhandener Plan an diesem Tag wird ersetzt (Tage mit Plan sind markiert).</div><div class="wkchips">'
+      +WD.map(function(n,i){return i===S.planDay?'':'<button data-cpt="'+i+'" aria-pressed="'+(cpt.indexOf(i)>=0)+'" class="'+((S.plan.days[i]||[]).length?'has':'')+'">'+n+'</button>'}).join('')
+      +'</div><button class="btn accent" style="margin-top:10px;width:100%" data-act="plancopy" '+(cpt.length?'':'disabled')+'>'+(cpt.length?'Auf '+cpt.map(function(i){return WDLONG[i]}).join(', ')+' kopieren':'Zieltage antippen')+'</button></section>';
+  }
   var cd=dayDoc(S.date),cn=cd.entries.length;
   h+='<section class="card"><h3>Vorlage aus Tagebuch</h3><div class="hint" style="margin-bottom:8px">Kopiert die '+cn+' Einträge von <b>'+esc(dateLabel(S.date).main)+'</b> in <b>'+pname(S.planDay)+'</b> und ersetzt den bisherigen Plan dort.</div><button class="btn ghost" data-act="planfromday" '+(cn?'':'disabled')+'>Als '+pname(S.planDay)+'-Plan speichern</button></section>';
   $('#app').innerHTML=h;
@@ -944,7 +950,7 @@ function partsMatch(parts,v){
 
 /* ---------- Ereignisse ---------- */
 document.addEventListener('click',async function(ev){
-  var el=ev.target.closest('[data-tab],[data-nav],[data-act],[data-edit],[data-done],[data-close],[data-step],[data-pick],[data-quick],[data-pd],[data-pedit],[data-libedit],[data-aidel],[data-pdel],[data-padd],[data-cal],[data-calnav],#fab');
+  var el=ev.target.closest('[data-tab],[data-nav],[data-act],[data-edit],[data-done],[data-close],[data-step],[data-pick],[data-quick],[data-pd],[data-cpt],[data-pedit],[data-libedit],[data-aidel],[data-pdel],[data-padd],[data-cal],[data-calnav],#fab');
   if(!el)return;
   if(el.id==='fab'){
     if(S.tab==='essen')return openSheet({mode:'lib',step:'form',entry:{name:'',unit:'1 Portion',kcal:'',p:'',c:'',f:''}});
@@ -978,7 +984,8 @@ document.addEventListener('click',async function(ev){
     var li=S.library.items.filter(function(e){return e.id===D.libedit})[0];if(!li)return;
     openSheet({mode:'lib',step:'form',editId:li.id,entry:clone(li)});return;
   }
-  if(D.pd!==undefined){S.planDay=D.pd==='d'?'d':+D.pd;renderPlan();return}
+  if(D.pd!==undefined){S.planDay=D.pd==='d'?'d':+D.pd;S.cpTo=[];renderPlan();return}
+  if(D.cpt!==undefined){var ci=+D.cpt;S.cpTo=S.cpTo||[];var ix=S.cpTo.indexOf(ci);if(ix>=0)S.cpTo.splice(ix,1);else S.cpTo.push(ci);renderPlan();return}
   if(D.step){
     if(Sh.step==='form'&&D.step!=='form'){}
     Sh.step=D.step;
@@ -1101,6 +1108,12 @@ document.addEventListener('click',async function(ev){
       else if(Sh.mode==='plan'){S.plan.days[S.planDay]=(S.plan.days[S.planDay]||[]).filter(function(e){return e.id!==Sh.editId});savePlan()}
       else{var dx=dayDoc(S.date);dx.entries=dx.entries.filter(function(e){return e.id!==Sh.editId});saveDay(S.date)}
       closeSheet();render();return;
+    }
+    if(a==='plancopy'){
+      var srcI=(S.plan.days[S.planDay]||[]),tg=(S.cpTo||[]).slice().sort();
+      if(!srcI.length||!tg.length)return;
+      tg.forEach(function(t){S.plan.days[t]=clone(srcI).map(function(e){e.id=uid();return e})});
+      savePlan();S.cpTo=[];renderPlan();toast(pname(S.planDay)+' kopiert auf '+tg.map(function(i){return WDLONG[i]}).join(', '));return;
     }
     if(a==='planfromday'){
       var src=dayDoc(S.date).entries.map(function(e){var o={id:uid(),name:e.name,kcal:e.kcal,p:e.p,c:e.c,f:e.f,time:e.time,meal:e.meal};if(e.parts)o.parts=e.parts;return o});
