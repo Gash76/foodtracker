@@ -337,7 +337,7 @@ function sumDay(d){
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
   });return t;
 }
-var APP_V='2026-11-12b';
+var APP_V='2026-11-12c';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;
@@ -581,8 +581,9 @@ function renderHeute(){
   h+=burnHtml(S.date);
   h+='<div class="syncline'+(S.sync.busy?' busy':'')+'" id="sync">'+syncHtml()+'</div>';
   var wi=wdIdx(S.date),pl=(S.plan.days[wi]||[]);
-  if(!d.entries.length&&pl.length){
-    h+='<div class="banner"><span><b>'+WDLONG[wi]+'</b>: '+pl.length+' Einträge im Plan.</span><button class="btn accent small" data-act="applyplan">Übernehmen</button></div>';
+  var pend=pl.filter(function(p){return !d.entries.some(function(e){return e.name===p.name})});
+  if(pend.length){
+    h+='<div class="banner"><span><b>'+WDLONG[wi]+'</b>: '+(d.entries.length?pend.length+' Plan-Einträge noch nicht übernommen.':pl.length+' Einträge im Plan.')+'</span><button class="btn accent small" data-act="applyplan">Übernehmen</button></div>';
   }
   var any=d.entries.length>0;
   if(!any){
@@ -734,9 +735,9 @@ function renderPlan(){
   h+='</section>';
   if(!isD&&items.length){
     var cpt=S.cpTo||[];
-    h+='<section class="card"><h3>Plan kopieren</h3><div class="hint" style="margin-bottom:8px">Kopiert die '+items.length+' Einträge von <b>'+pname(S.planDay)+'</b> auf die gewählten Tage. Ein vorhandener Plan an diesem Tag wird ersetzt (Tage mit Plan sind markiert).</div><div class="wkchips">'
+    h+='<section class="card"><h3>Plan kopieren</h3><div class="hint" style="margin-bottom:8px">Kopiert die '+items.length+' Einträge von <b>'+pname(S.planDay)+'</b> auf die gewählten Tage. „Ergänzen“ fügt nur hinzu, was am Zieltag noch fehlt. „Ersetzen“ überschreibt den Plan dort (Tage mit Plan sind markiert).</div><div class="wkchips">'
       +WD.map(function(n,i){return i===S.planDay?'':'<button data-cpt="'+i+'" aria-pressed="'+(cpt.indexOf(i)>=0)+'" class="'+((S.plan.days[i]||[]).length?'has':'')+'">'+n+'</button>'}).join('')
-      +'</div><button class="btn accent" style="margin-top:10px;width:100%" data-act="plancopy" '+(cpt.length?'':'disabled')+'>'+(cpt.length?'Auf '+cpt.map(function(i){return WDLONG[i]}).join(', ')+' kopieren':'Zieltage antippen')+'</button></section>';
+      +'</div><div class="grid2" style="margin-top:10px"><button class="btn accent" data-act="plancopy" '+(cpt.length?'':'disabled')+'>'+(cpt.length?'Ergänzen':'Zieltage antippen')+'</button><button class="btn" data-act="plancopy" data-mode="replace" '+(cpt.length?'':'disabled')+'>Ersetzen</button></div></section>';
   }
   var cd=dayDoc(S.date),cn=cd.entries.length;
   h+='<section class="card"><h3>Vorlage aus Tagebuch</h3><div class="hint" style="margin-bottom:8px">Kopiert die '+cn+' Einträge von <b>'+esc(dateLabel(S.date).main)+'</b> in <b>'+pname(S.planDay)+'</b> und ersetzt den bisherigen Plan dort.</div><button class="btn ghost" data-act="planfromday" '+(cn?'':'disabled')+'>Als '+pname(S.planDay)+'-Plan speichern</button></section>';
@@ -1021,8 +1022,9 @@ document.addEventListener('click',async function(ev){
     if(a==='sync'){syncDrive();return}
     if(a==='applyplan'){
       var wi=wdIdx(S.date),dd=dayDoc(S.date);
-      (S.plan.days[wi]||[]).forEach(function(p){dd.entries.push(Object.assign(clone(p),{id:uid(),done:false}))});
-      saveDay(S.date);render();toast('Plan übernommen. Hake gegessene Einträge ab.');return;
+      var added=0;
+      (S.plan.days[wi]||[]).forEach(function(p){if(dd.entries.some(function(e){return e.name===p.name}))return;dd.entries.push(Object.assign(clone(p),{id:uid(),done:false}));added++});
+      saveDay(S.date);render();toast(added+' Plan-Einträge übernommen. Hake gegessene Einträge ab.');return;
     }
     if(a==='aiclearfile'){Sh.ai.file=null;Sh.ai.fname='';drawSheet();return}
     if(a==='aistop'){if(Sh.ai.ctl)Sh.ai.ctl.abort();return}
@@ -1112,8 +1114,13 @@ document.addEventListener('click',async function(ev){
     if(a==='plancopy'){
       var srcI=(S.plan.days[S.planDay]||[]),tg=(S.cpTo||[]).slice().sort();
       if(!srcI.length||!tg.length)return;
-      tg.forEach(function(t){S.plan.days[t]=clone(srcI).map(function(e){e.id=uid();return e})});
-      savePlan();S.cpTo=[];renderPlan();toast(pname(S.planDay)+' kopiert auf '+tg.map(function(i){return WDLONG[i]}).join(', '));return;
+      var rp=el.dataset.mode==='replace';
+      tg.forEach(function(t){
+        var cp=clone(srcI).map(function(e){e.id=uid();return e});
+        if(rp)S.plan.days[t]=cp;
+        else{var ex=S.plan.days[t]||[];S.plan.days[t]=ex.concat(cp.filter(function(e){return !ex.some(function(x){return x.name===e.name})}))}
+      });
+      savePlan();S.cpTo=[];renderPlan();toast(pname(S.planDay)+(rp?' ersetzt auf ':' ergänzt auf ')+tg.map(function(i){return WDLONG[i]}).join(', '));return;
     }
     if(a==='planfromday'){
       var src=dayDoc(S.date).entries.map(function(e){var o={id:uid(),name:e.name,kcal:e.kcal,p:e.p,c:e.c,f:e.f,time:e.time,meal:e.meal};if(e.parts)o.parts=e.parts;return o});
