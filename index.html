@@ -337,7 +337,7 @@ function sumDay(d){
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
   });return t;
 }
-var APP_V='2026-11-12c';
+var APP_V='2026-11-13a';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;
@@ -792,7 +792,7 @@ function newAi(){return {text:'',file:null,fname:'',mode:'meal',parts:null,note:
 function openSheet(cfg){Sh=cfg;drawSheet()}
 function closeSheet(){if(Sh&&Sh.ai&&Sh.ai.ctl)try{Sh.ai.ctl.abort()}catch(e){};Sh=null;$('#layer').innerHTML=''}
 function macroFields(v){
-  return '<div class="grid4"><div class="field"><label for="f-kcal">kcal</label><input id="f-kcal" inputmode="decimal" value="'+(v.kcal||'')+'"></div><div class="field"><label for="f-p">Eiweiß</label><input id="f-p" inputmode="decimal" value="'+(v.p||'')+'"></div><div class="field"><label for="f-c">Kohlenh.</label><input id="f-c" inputmode="decimal" value="'+(v.c||'')+'"></div><div class="field"><label for="f-f">Fett</label><input id="f-f" inputmode="decimal" value="'+(v.f||'')+'"></div></div>';
+  return '<div class="grid4"><div class="field"><label for="f-kcal">kcal</label><input id="f-kcal" inputmode="decimal" value="'+(v.kcal||'')+'"></div><div class="field"><label for="f-p">Eiweiß</label><input id="f-p" inputmode="decimal" value="'+(v.p||'')+'"></div><div class="field"><label for="f-c">Kohlenh.</label><input id="f-c" inputmode="decimal" value="'+(v.c||'')+'"></div><div class="field"><label for="f-f">Fett</label><input id="f-f" inputmode="decimal" value="'+(v.f||'')+'"></div></div><div class="hint" style="margin:-4px 0 10px">Änderst du die kcal, rechnet die App Eiweiß, Kohlenhydrate und Fett anteilig mit.</div>';
 }
 function partsRows(ps,ctx,delAttr){
   var h='';
@@ -806,8 +806,14 @@ function partsEditor(){
   var ps=Sh&&Sh.entry&&Sh.entry.parts;
   if(!ps||!ps.length)return '';
   return '<div class="card" style="margin-top:4px"><h3>Posten</h3>'+partsRows(ps,'entry','data-pdel')
-    +'<div class="hint" style="margin-top:8px">Ändere die Menge (z. B. 150 g auf 300 g), dann rechnet die App den Posten um. Summe und Gesamtwerte oben passen sich an.</div><button class="btn ghost small" data-padd="1" style="margin-top:6px">Posten hinzufügen</button></div>';
+    +'<div class="hint" style="margin-top:8px">Ändere die Menge (z. B. 150 g auf 300 g) oder die kcal eines Postens, dann rechnet die App den Posten um. Summe und Gesamtwerte oben passen sich an.</div><button class="btn ghost small" data-padd="1" style="margin-top:6px">Posten hinzufügen</button></div>';
 }
+function scaleM(m,fct){
+  var x=String(m||'').match(/^(\s*)(\d+(?:[.,]\d+)?)(\s*(?:g|ml|kg|l)\b.*)$/i);
+  if(!x)return m;var n=parseFloat(x[2].replace(',','.'))*fct;
+  return x[1]+(n>=10?String(Math.round(n)):String(r1(n)).replace('.',','))+x[3];
+}
+function scalePart(x,fct){return {n:x.n,m:scaleM(x.m,fct),kcal:r0(x.kcal*fct),p:r1(x.p*fct),c:r1(x.c*fct),f:r1(x.f*fct)}}
 function ctxParts(row){return row.dataset.ctx==='ai'?(Sh&&Sh.ai&&Sh.ai.parts):(Sh&&Sh.entry&&Sh.entry.parts)}
 function aiTotals(){var t=partsTotal(Sh.ai.parts||[]),n=$('.totalrow .num');if(n)n.textContent=fmt(t.kcal)+' kcal'}
 function syncEntryTotals(){
@@ -1188,12 +1194,52 @@ document.addEventListener('change',function(ev){
     drawSheet();
   }
 });
+document.addEventListener('focusin',function(ev){
+  var t=ev.target;if(!Sh)return;
+  if(t.id==='f-kcal'){
+    var am=$('#f-amt');
+    Sh.k0={kcal:num(t.value),p:num(($('#f-p')||{}).value),c:num(($('#f-c')||{}).value),f:num(($('#f-f')||{}).value),amt:am?am.value:null,parts:(Sh.entry&&Sh.entry.parts&&Sh.entry.parts.length)?clone(Sh.entry.parts):null};
+  }else if(t.dataset&&t.dataset.pf==='kcal'){
+    var row=t.closest('.prt'),arr=row&&ctxParts(row),x=arr&&arr[+row.dataset.pi];
+    if(x)row._k0=clone(x);
+  }
+});
 document.addEventListener('keydown',function(ev){if((ev.key==='Enter'||ev.key===' ')&&ev.target.matches&&ev.target.matches('.entry[role=button]')){ev.preventDefault();ev.target.click()}if(ev.key==='Escape'&&Sh)closeSheet()});
 document.addEventListener('input',function(ev){
   var id=ev.target.id;
   if(id==='libq'){S.libQ=ev.target.value;var pos=ev.target.selectionStart;renderEssen();var n=$('#libq');n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}
   else if(id==='ai-text'&&Sh&&Sh.ai)Sh.ai.text=ev.target.value;
   else if(id==='ai-fix'&&Sh&&Sh.ai)Sh.ai.fix=ev.target.value;
+  else if(id==='f-kcal'&&Sh&&Sh.k0&&Sh.k0.kcal>0){
+    if(String(ev.target.value).trim()==='')return;
+    var nk=r0(num(ev.target.value)),k0=Sh.k0,fc=nk/k0.kcal;
+    var setv=function(sel,v){var n=$(sel);if(n)n.value=v};
+    if(k0.parts){
+      var np=k0.parts.map(function(x){return scalePart(x,fc)});
+      var diff=nk-partsTotal(np).kcal;
+      if(diff&&np.length){var big=np.reduce(function(a,x,i){return x.kcal>np[a].kcal?i:a},0);np[big].kcal=Math.max(0,np[big].kcal+diff)}
+      Sh.entry.parts=np;var tt=partsTotal(np);
+      Object.assign(Sh.entry,{kcal:nk,p:r1(tt.p),c:r1(tt.c),f:r1(tt.f)});
+      setv('#f-p',Sh.entry.p);setv('#f-c',Sh.entry.c);setv('#f-f',Sh.entry.f);
+      document.querySelectorAll('.prt[data-ctx="entry"]').forEach(function(row){
+        var x=np[+row.dataset.pi];if(!x)return;
+        ['m','kcal','p','c','f'].forEach(function(k){var n=row.querySelector('[data-pf="'+k+'"]');if(n)n.value=x[k]});
+        row.dataset.m0=x.m||'';
+      });
+    }else{
+      setv('#f-p',r1(k0.p*fc));setv('#f-c',r1(k0.c*fc));setv('#f-f',r1(k0.f*fc));
+      if(k0.amt!=null){var am2=$('#f-amt');if(am2)am2.value=scaleM(k0.amt,fc)}
+    }
+  }
+  else if(ev.target.dataset&&ev.target.dataset.pf==='kcal'&&Sh&&ev.target.closest('.prt')&&ev.target.closest('.prt')._k0&&ev.target.closest('.prt')._k0.kcal>0){
+    if(String(ev.target.value).trim()==='')return;
+    var rw=ev.target.closest('.prt'),ar=ctxParts(rw),ix=+rw.dataset.pi;if(!ar||!ar[ix])return;
+    var b0=rw._k0,nk2=r0(num(ev.target.value)),sp=scalePart(b0,nk2/b0.kcal);sp.kcal=nk2;sp.n=ar[ix].n;
+    ar[ix]=sp;
+    ['m','p','c','f'].forEach(function(k){var n=rw.querySelector('[data-pf="'+k+'"]');if(n)n.value=sp[k]});
+    rw.dataset.m0=sp.m||'';
+    if(rw.dataset.ctx==='ai')aiTotals();else syncEntryTotals();
+  }
   else if(ev.target.dataset&&ev.target.dataset.pf&&Sh){
     var row=ev.target.closest('.prt'),arr=row&&ctxParts(row);if(!arr)return;
     var i=+row.dataset.pi,x=arr[i],k=ev.target.dataset.pf;if(!x)return;
