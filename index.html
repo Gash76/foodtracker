@@ -114,6 +114,13 @@ h1,h2,h3{font-family:var(--font-head);font-weight:700;letter-spacing:.02em;text-
 .cal button.sel{outline:2px solid currentColor;outline-offset:1px}
 #wkbox{margin-top:18px}
 .prt{padding:10px 0;border-bottom:1px solid var(--hair)}
+.sugg{border:1.5px solid var(--ink);background:var(--surface);margin:2px 0 8px;max-height:280px;overflow-y:auto}
+.sugg button{display:block;width:100%;text-align:left;padding:8px 10px;border-bottom:1px solid var(--hair);min-width:0}
+.sugg button:last-child{border-bottom:0}
+.sugg b{display:block;font-weight:600;overflow-wrap:anywhere}
+.sugg small{color:var(--muted);font-family:var(--font-num);font-size:12px}
+.sugg .sh{padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:var(--bg)}
+.sugg .sx{padding:8px 10px;font-size:13px;color:var(--muted)}
 .prt-top{display:grid;grid-template-columns:1fr 84px auto;gap:6px;align-items:center;margin-bottom:6px}
 .prt input{width:100%;min-width:0;font:inherit;font-size:15px;padding:8px;border:1px solid var(--hair);border-radius:6px;background:transparent;color:inherit}
 .prt .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
@@ -250,14 +257,19 @@ function clone(o){return JSON.parse(JSON.stringify(o))}
 function pname(k){return k==='d'?'Täglich':WDLONG[k]}
 
 /* ---------- Speicher: db (privat pro Person), sonst Browser ---------- */
+var TEST=/test\.html$/.test(location.pathname);var LSP=TEST?'ftt:':'ft:';
 var Store={mode:'local',cfg:null,mem:{},pend:null,pendT:null,dirty:{},ver:{},flushT:null,flushing:false,failed:false,warned:false,
   init:function(){
+    if(TEST){
+      try{if(!localStorage.getItem('ftt-seeded')){var ks=[];for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k.indexOf('ft:')===0)ks.push(k)}ks.forEach(function(k){localStorage.setItem('ftt:'+k.slice(3),localStorage.getItem(k))});localStorage.setItem('ftt-seeded','1')}}catch(e){}
+      this.dirty={};return;
+    }
     try{var c=JSON.parse(localStorage.getItem('ft-conn')||'null');if(c&&c.u&&c.t){this.cfg=c;this.mode='remote'}}catch(e){}
     try{this.dirty=JSON.parse(localStorage.getItem('ft-dirty')||'{}')}catch(e){this.dirty={}}
   },
-  persistDirty:function(){try{localStorage.setItem('ft-dirty',JSON.stringify(this.dirty))}catch(e){}},
-  lsGet:function(id){try{var v=localStorage.getItem('ft:'+id);return v?JSON.parse(v):null}catch(e){return null}},
-  lsSet:function(id,d){try{localStorage.setItem('ft:'+id,JSON.stringify(d))}catch(e){}},
+  persistDirty:function(){if(TEST)return;try{localStorage.setItem('ft-dirty',JSON.stringify(this.dirty))}catch(e){}},
+  lsGet:function(id){try{var v=localStorage.getItem(LSP+id);return v?JSON.parse(v):null}catch(e){return null}},
+  lsSet:function(id,d){try{localStorage.setItem(LSP+id,JSON.stringify(d))}catch(e){}},
   api:async function(action,body,signal){
     var r;
     try{r=await fetch(this.cfg.u,{method:'POST',body:JSON.stringify(Object.assign({token:this.cfg.t,action:action},body||{})),redirect:'follow',signal:signal})}
@@ -280,13 +292,14 @@ var Store={mode:'local',cfg:null,mem:{},pend:null,pendT:null,dirty:{},ver:{},flu
   flushGet:async function(){
     var p=this.pend,self=this;this.pend=null;this.pendT=null;
     var docs=null;
-    try{var r=await this.api('get',{keys:Object.keys(p.keys)});docs=r.docs||{};this.failed=false}
+    try{var r=await this.api('get',{keys:Object.keys(p.keys)});if(!r||typeof r.docs!=='object'||r.docs===null||r.error)throw {code:'net'};docs=r.docs;this.failed=false}
     catch(e){this.failed=true;this.failCode=e&&e.code}
     p.cbs.forEach(function(cb){
       var id=cb[0],val;
       if(docs){
         val=docs[id]===undefined?null:docs[id];
         if(self.dirty[id]){var l=self.lsGet(id);if(l)val=l}
+        else if(val==null&&/^d-/.test(id)){var l2=self.lsGet(id);if(l2&&l2.entries&&l2.entries.length)val=l2}
         self.mem[id]=val;if(val!=null)self.lsSet(id,val);
       }else val=self.lsGet(id);
       cb[1](val==null?null:clone(val));
@@ -323,7 +336,7 @@ var Store={mode:'local',cfg:null,mem:{},pend:null,pendT:null,dirty:{},ver:{},flu
       Object.keys(this.dirty).forEach(function(k){var l=self.lsGet(k);if(l)out[k]=l});
       if(Object.keys(out).length)return out;
     }
-    try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k.indexOf('ft:')===0)out[k.slice(3)]=JSON.parse(localStorage.getItem(k))}}catch(e){}
+    try{for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(k.indexOf(LSP)===0)out[k.slice(LSP.length)]=JSON.parse(localStorage.getItem(k))}}catch(e){}
     return out;
   }
 };
@@ -337,7 +350,7 @@ function sumDay(d){
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
   });return t;
 }
-var APP_V='2026-11-12c';
+var APP_V=TEST?'2026-11-14 TEST':'2026-11-14a';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;
@@ -852,6 +865,7 @@ function aiStep(){
   return h;
 }
 function drawSheet(){
+  if(typeof FS!=='undefined'&&FS&&FS.box)fsClose();
   if(!Sh){$('#layer').innerHTML='';return}
   var h='<div class="scrim" data-close></div><div class="sheet" role="dialog" aria-modal="true"><div class="in">';
   var titles={log:'Eintragen',plan:'Zum Plan hinzufügen',lib:'Favorit'};
@@ -1152,6 +1166,7 @@ document.addEventListener('click',async function(ev){
       return;
     }
     if(a==='connect'){
+      if(TEST){toast('In der Testversion nicht möglich');return}
       var cc=parseConn($('#conn-code').value);
       if(!cc){toast('Der Code ist ungültig');return}
       Store.cfg=cc;Store.mode='remote';
@@ -1220,6 +1235,97 @@ document.addEventListener('change',function(ev){
   set('kcal',x.kcal);set('p',x.p);set('c',x.c);set('f',x.f);
   if(row.dataset.ctx==='ai')aiTotals();else syncEntryTotals();
 });
+
+/* ---------- Lebensmittelsuche (Favoriten + Open Food Facts) ---------- */
+var FS={el:null,q:'',t:null,ctl:null,res:[],box:null,cache:{}};
+function fsTarget(el){return el&&((el.id==='f-name'&&$('#f-amt'))||(el.dataset&&el.dataset.pf==='n'))&&Sh&&Sh.mode!=='lib'}
+function fsClose(){if(FS.box){FS.box.remove();FS.box=null}if(FS.ctl){try{FS.ctl.abort()}catch(e){}FS.ctl=null}clearTimeout(FS.t);FS.el=null}
+function fsGrams(m){var a=amtParse(m);if(!a||!(a.n>0))return null;var u=a.u;if(u==='g'||u==='ml'||u==='gramm')return a.n;if(u==='kg'||u==='l')return a.n*1000;return null}
+function fsCurAmt(el){
+  if(el.id==='f-name'){var af=$('#f-amt');return af?af.value:''}
+  var row=el.closest('.prt'),arr=row&&ctxParts(row),x=arr&&arr[+row.dataset.pi];return x?(x.m||''):'';
+}
+function fsBox(el){
+  if(!FS.box){FS.box=document.createElement('div');FS.box.className='sugg';FS.box.setAttribute('role','listbox')}
+  var anchor=el.id==='f-name'?el.closest('.field'):el.closest('.prt-top');
+  if(anchor&&FS.box.previousSibling!==anchor)anchor.after(FS.box);
+  return FS.box;
+}
+function fsRender(){
+  if(!FS.el)return;
+  var q=FS.q.toLowerCase(),h='';
+  var favs=S.library.items.filter(function(i){return i.name.toLowerCase().indexOf(q)>=0}).slice(0,4);
+  FS.favs=favs;
+  if(favs.length){h+='<div class="sh">Favoriten</div>'+favs.map(function(i,k){return '<button type="button" data-fsf="'+k+'"><b>'+esc(i.name)+'</b><small>'+esc(i.unit||'1 Portion')+' · '+fmt(i.kcal)+' kcal</small></button>'}).join('')}
+  h+='<div class="sh">Open Food Facts</div>';
+  if(FS.busy)h+='<div class="sx">Suche läuft …</div>';
+  else if(FS.err)h+='<div class="sx">'+esc(FS.err)+'</div>';
+  else if(!FS.res.length)h+='<div class="sx">Keine Treffer</div>';
+  else h+=FS.res.map(function(r,k){return '<button type="button" data-fso="'+k+'"><b>'+esc(r.name)+'</b><small>'+(r.brand?esc(r.brand)+' · ':'')+fmt(r.kcal)+' kcal · E '+String(r1(r.p)).replace('.',',')+' · K '+String(r1(r.c)).replace('.',',')+' · F '+String(r1(r.f)).replace('.',',')+' je 100 g</small></button>'}).join('');
+  fsBox(FS.el).innerHTML=h;
+}
+async function fsSearch(q,retry){
+  if(FS.cache[q]){FS.res=FS.cache[q];FS.busy=false;FS.err='';fsRender();return}
+  if(FS.ctl){try{FS.ctl.abort()}catch(e){}}
+  var ctl=new AbortController();FS.ctl=ctl;FS.busy=true;FS.err='';fsRender();
+  try{
+    var u='https://world.openfoodfacts.org/cgi/search.pl?search_terms='+encodeURIComponent(q)+'&search_simple=1&action=process&json=1&page_size=15&lc=de&cc=de&fields=product_name,product_name_de,brands,nutriments';
+    var r=await fetch(u,{signal:ctl.signal});if(!r.ok)throw 0;var j=await r.json();
+    var out=[];(j.products||[]).forEach(function(p){
+      var n=p.nutriments||{},k=n['energy-kcal_100g'];if(k==null&&n['energy_100g']!=null)k=n['energy_100g']/4.184;
+      var nm=(p.product_name_de||p.product_name||'').trim();if(!nm||k==null||!isFinite(+k))return;
+      out.push({name:nm,brand:String(p.brands||'').split(',')[0].trim(),kcal:+k,p:+(n.proteins_100g||0),c:+(n.carbohydrates_100g||0),f:+(n.fat_100g||0)});
+    });
+    FS.cache[q]=out;if(FS.ctl!==ctl)return;FS.res=out;FS.busy=false;fsRender();
+  }catch(e){if(e&&e.name==='AbortError'||FS.ctl!==ctl)return;if(!retry){setTimeout(function(){if(FS.q===q&&FS.el)fsSearch(q,true)},1200);return}FS.busy=false;FS.res=[];FS.err='Datenbank gerade nicht erreichbar – tippe ein Zeichen, um es nochmal zu versuchen';fsRender()}
+}
+function fsInput(el){
+  var q=(el.value||'').trim();
+  if(FS.el!==el){fsClose();FS.el=el}
+  FS.q=q;clearTimeout(FS.t);
+  if(q.length<3){if(FS.box){FS.box.remove();FS.box=null}return}
+  FS.res=[];FS.busy=true;FS.err='';fsRender();
+  FS.t=setTimeout(function(){fsSearch(q)},450);
+}
+function fsApply(v){
+  var el=FS.el;if(!el)return;
+  // v: {name, per:{kcal,p,c,f} je 100 g} oder {name, unit, kcal,p,c,f} (Favorit)
+  var amt=fsCurAmt(el),g=fsGrams(amt),vals,newM=amt;
+  if(v.per){
+    if(!g){g=100;newM='100 g'}
+    var k=g/100;vals={kcal:r0(v.per.kcal*k),p:r1(v.per.p*k),c:r1(v.per.c*k),f:r1(v.per.f*k)};
+  }else{
+    var fg=fsGrams(v.unit);
+    if(g&&fg){var k2=g/fg;vals={kcal:r0(v.kcal*k2),p:r1(v.p*k2),c:r1(v.c*k2),f:r1(v.f*k2)}}
+    else{vals={kcal:r0(v.kcal),p:r1(v.p),c:r1(v.c),f:r1(v.f)};newM=v.unit||'1 Portion'}
+  }
+  if(el.id==='f-name'){
+    el.value=v.name;if(Sh.entry)Sh.entry.name=v.name;
+    var set=function(id,x){var n=$(id);if(n)n.value=x};
+    set('#f-kcal',vals.kcal);set('#f-p',vals.p);set('#f-c',vals.c);set('#f-f',vals.f);
+    var af=$('#f-amt');if(af){af.value=newM;amtRebase(newM)}
+  }else{
+    var row=el.closest('.prt'),arr=ctxParts(row),i=+row.dataset.pi,x=arr&&arr[i];if(!x)return;
+    var oldName=partsName(arr);
+    x.n=v.name;x.m=newM;x.kcal=vals.kcal;x.p=vals.p;x.c=vals.c;x.f=vals.f;
+    el.value=v.name;row.dataset.m0=newM;
+    ['m','kcal','p','c','f'].forEach(function(f){var n=row.querySelector('[data-pf="'+f+'"]');if(n)n.value=x[f]});
+    if(row.dataset.ctx==='ai')aiTotals();
+    else{var cur=syncEntryTotals(),nm=$('#f-name');if(nm&&cur===oldName){nm.value=partsName(arr);Sh.entry.name=nm.value}}
+  }
+  fsClose();toast('Übernommen: '+vals.kcal+' kcal');
+}
+document.addEventListener('pointerdown',function(ev){
+  var b=ev.target.closest&&ev.target.closest('[data-fso],[data-fsf]');
+  if(b){ev.preventDefault();
+    if(b.dataset.fso!==undefined){var r=FS.res[+b.dataset.fso];if(r)fsApply({name:r.brand?r.name+' ('+r.brand+')':r.name,per:r})}
+    else{var f=FS.favs&&FS.favs[+b.dataset.fsf];if(f)fsApply({name:f.name,unit:f.unit,kcal:f.kcal,p:f.p,c:f.c,f:f.f})}
+    return;
+  }
+  if(FS.box&&!(ev.target.closest&&ev.target.closest('.sugg'))&&ev.target!==FS.el)fsClose();
+},true);
+document.addEventListener('input',function(ev){if(fsTarget(ev.target))fsInput(ev.target)});
+if(TEST){window.__ft={Store:Store,S:S,V:APP_V};(function(){var b=document.createElement('div');b.textContent='TESTVERSION – Änderungen bleiben nur auf diesem Gerät, nichts geht nach Drive';b.style.cssText='position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;z-index:70;background:#E4570F;color:#fff;font:600 12px/1.6 sans-serif;text-align:center;padding:2px 8px;pointer-events:none';document.body.appendChild(b)})()}
 
 function saveFile(name,text,type){
   try{
@@ -1292,7 +1398,7 @@ async function lookupEan(code){
 /* ---------- Start ---------- */
 function initCaps(){
   var h=location.hash||'';
-  if(/^#c=/.test(h)){
+  if(/^#c=/.test(h)&&!TEST){
     var cc=parseConn(h.slice(1));
     if(cc){try{localStorage.setItem('ft-conn',JSON.stringify(cc))}catch(e){}}
     try{history.replaceState(null,'',location.pathname+location.search)}catch(e){location.hash=''}
@@ -1320,7 +1426,7 @@ async function boot(){
   await loadDay(S.date);
   render();
   if(Store.mode==='remote'){syncDrive();Store.flush()}
-  else{toast('Nicht verbunden: Verbindungscode unter Mehr einfügen')}
+  else if(!TEST){toast('Nicht verbunden: Verbindungscode unter Mehr einfügen')}
   document.addEventListener('visibilitychange',function(){
     if(document.visibilityState==='visible'&&Store.mode==='remote'){Store.flush();syncDrive();loadGarmin().then(function(ok){if(ok&&S.tab==='heute'&&!Sh)render()})}
   });
