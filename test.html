@@ -1264,7 +1264,7 @@ function fsRender(){
   else h+=FS.res.map(function(r,k){return '<button type="button" data-fso="'+k+'"><b>'+esc(r.name)+'</b><small>'+(r.brand?esc(r.brand)+' · ':'')+fmt(r.kcal)+' kcal · E '+String(r1(r.p)).replace('.',',')+' · K '+String(r1(r.c)).replace('.',',')+' · F '+String(r1(r.f)).replace('.',',')+' je 100 g</small></button>'}).join('');
   fsBox(FS.el).innerHTML=h;
 }
-async function fsSearch(q){
+async function fsSearch(q,retry){
   if(FS.cache[q]){FS.res=FS.cache[q];FS.busy=false;FS.err='';fsRender();return}
   if(FS.ctl){try{FS.ctl.abort()}catch(e){}}
   var ctl=new AbortController();FS.ctl=ctl;FS.busy=true;FS.err='';fsRender();
@@ -1277,7 +1277,7 @@ async function fsSearch(q){
       out.push({name:nm,brand:String(p.brands||'').split(',')[0].trim(),kcal:+k,p:+(n.proteins_100g||0),c:+(n.carbohydrates_100g||0),f:+(n.fat_100g||0)});
     });
     FS.cache[q]=out;if(FS.ctl!==ctl)return;FS.res=out;FS.busy=false;fsRender();
-  }catch(e){if(e&&e.name==='AbortError')return;FS.busy=false;FS.res=[];FS.err='Datenbank gerade nicht erreichbar';fsRender()}
+  }catch(e){if(e&&e.name==='AbortError'||FS.ctl!==ctl)return;if(!retry){setTimeout(function(){if(FS.q===q&&FS.el)fsSearch(q,true)},1200);return}FS.busy=false;FS.res=[];FS.err='Datenbank gerade nicht erreichbar – tippe ein Zeichen, um es nochmal zu versuchen';fsRender()}
 }
 function fsInput(el){
   var q=(el.value||'').trim();
