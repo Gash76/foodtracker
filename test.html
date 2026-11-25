@@ -364,7 +364,7 @@ function sumDay(d,date){
   if(isPauschal(d,date)){t.kcal=Math.max(t.kcal,PAUSCHAL_KCAL);t.pauschal=true}
   return t;
 }
-var APP_V=TEST?'2026-11-22 TEST':'2026-11-14a';
+var APP_V=TEST?'2026-11-25 TEST':'2026-11-25a';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;

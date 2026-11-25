@@ -106,6 +106,8 @@ h1,h2,h3{font-family:var(--font-head);font-weight:700;letter-spacing:.02em;text-
 .cal button small{font-size:10px;color:var(--muted)}
 .cal button.has{border-color:var(--accent)}
 .cal button.has small{color:var(--accent)}
+.cal button.pa{border-style:dashed}
+.cal button.pa small::after{content:'*'}
 .cal button.ok{border-color:var(--good)}
 .cal button.ok small{color:var(--good)}
 .cal button.over{border-color:var(--warn)}
@@ -343,14 +345,26 @@ var Store={mode:'local',cfg:null,mem:{},pend:null,pendT:null,dirty:{},ver:{},flu
 
 /* ---------- Zustand ---------- */
 var S={tab:'heute',date:ymd(new Date()),settings:null,library:null,plan:null,drive:{done:{}},days:{},planDay:wdIdx(ymd(new Date())),libQ:'',sync:{busy:false,msg:'',at:''}};
-function sumDay(d){
+/* Nicht getrackte Tage: vergangene Tage ohne eigene Einträge zählen pauschal mit PAUSCHAL_KCAL.
+   Wird nur berechnet, nicht gespeichert; sobald du etwas einträgst, gilt wieder der echte Wert. */
+var PAUSCHAL_KCAL=3000,PAUSCHAL_AB='2026-11-01';
+function dayDate(d){return d&&d.__date}
+function tagDatum(d,date){if(d&&date&&!d.__date){try{Object.defineProperty(d,'__date',{value:date,enumerable:false,configurable:true})}catch(e){}}return d}
+function isPauschal(d,date){
+  date=date||dayDate(d);if(!d||!date)return false;
+  if(date<PAUSCHAL_AB||date>=ymd(new Date()))return false;
+  return !(d.entries||[]).some(function(e){return e&&e.done!==false&&!e.auto});
+}
+function sumDay(d,date){
   var t={kcal:0,p:0,c:0,f:0,pk:0};
   (d.entries||[]).forEach(function(e){
     if(e.done===false){t.pk+=e.kcal;return}
     t.kcal+=e.kcal;t.p+=e.p;t.c+=e.c;t.f+=e.f;
-  });return t;
+  });
+  if(isPauschal(d,date)){t.kcal=Math.max(t.kcal,PAUSCHAL_KCAL);t.pauschal=true}
+  return t;
 }
-var APP_V=TEST?'2026-11-14 TEST':'2026-11-14a';
+var APP_V=TEST?'2026-11-25 TEST':'2026-11-25a';
 S.garmin=null;
 async function loadGarmin(){
   if(Store.mode!=='remote')return false;
@@ -420,7 +434,7 @@ function garminWeightCard(){
   h+=svg+'<div class="hint">Punkte: einzelne Wägungen von deiner Garmin-Waage. Linie: Durchschnitt der letzten 7 Tage, er zeigt die Richtung ohne das tägliche Auf und Ab.</div></section>';
   return h;
 }
-function dayDoc(date){if(!S.days[date])S.days[date]={entries:[],weight:null};return S.days[date]}
+function dayDoc(date){if(!S.days[date])S.days[date]={entries:[],weight:null};return tagDatum(S.days[date],date)}
 function saveDay(date){Store.save('d-'+date,S.days[date])}
 function saveSettings(){Store.save('settings',S.settings)}
 function saveLibrary(){Store.save('library',S.library)}
@@ -441,7 +455,7 @@ async function loadDay(date){
     S.days[date]=d||{entries:[],weight:null};
     if(!S.days[date].entries)S.days[date].entries=[];
   }
-  var doc=S.days[date];
+  var doc=tagDatum(S.days[date],date);
   // Tägliche Standardsachen: einmal pro heutigem Tag automatisch eintragen
   if(date===ymd(new Date())&&!doc.autoDaily){
     var dl=(S.plan&&S.plan.days&&S.plan.days.d)||[];
@@ -599,6 +613,7 @@ function renderHeute(){
     h+='<div class="banner"><span><b>'+WDLONG[wi]+'</b>: '+(d.entries.length?pend.length+' Plan-Einträge noch nicht übernommen.':pl.length+' Einträge im Plan.')+'</span><button class="btn accent small" data-act="applyplan">Übernehmen</button></div>';
   }
   var any=d.entries.length>0;
+  if(isPauschal(d,S.date)){h+='<div class="banner" style="border-style:solid"><span><b>Nicht getrackt</b>: Dieser Tag zählt pauschal mit '+fmt(PAUSCHAL_KCAL)+' kcal. Trägst du etwas ein, gilt wieder der echte Wert.</span></div>'}
   if(!any){
     h+='<div class="empty"><b>Noch nichts eingetragen</b>Lege ein Foto in den Drive-Ordner „Foodtracker“ oder tippe auf <span style="color:var(--accent);font-weight:700">+</span>.</div>';
   }else{
@@ -627,9 +642,10 @@ function weekHtml(dates){
   var vals=last7.map(function(s){return sumDay(S.days[s]).kcal});
   var logged=vals.filter(function(v){return v>0});
   var avg=logged.length?logged.reduce(function(a,b){return a+b},0)/logged.length:0;
-  var avgP=0;if(logged.length){avgP=last7.reduce(function(a,s){var t=sumDay(S.days[s]);return a+(t.kcal>0?t.p:0)},0)/logged.length}
+  var pDays=last7.filter(function(s){var t=sumDay(S.days[s]);return t.kcal>0&&!t.pauschal});
+  var avgP=pDays.length?pDays.reduce(function(a,s){return a+sumDay(S.days[s]).p},0)/pDays.length:0;
   var h='';
-  h+='<div class="stat"><div><b>'+fmt(avg)+'</b><span>Ø kcal / Tag</span></div><div><b>'+f1(avgP)+'</b><span>Ø Eiweiß g</span></div><div><b>'+logged.length+'/7</b><span>Tage erfasst</span></div></div>';
+  h+='<div class="stat"><div><b>'+fmt(avg)+'</b><span>Ø kcal / Tag</span></div><div><b>'+f1(avgP)+'</b><span>Ø Eiweiß g</span></div><div><b>'+pDays.length+'/7</b><span>Tage erfasst</span></div></div>';
   var maxV=Math.max(g.kcal*1.25,Math.max.apply(null,vals)*1.05),W=340,H=190,pl=30,pb=24,pt=10,bw=(W-pl-6)/7;
   var sy=function(v){return pt+(H-pt-pb)*(1-v/maxV)};
   var svg='<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Kalorien der letzten 7 Tage"><line class="ax" x1="'+pl+'" x2="'+W+'" y1="'+sy(0)+'" y2="'+sy(0)+'"/>';
@@ -718,17 +734,17 @@ async function renderWoche(){
   var g=S.settings,today=todayK,h=head;
   h+='<div class="cal">'+WD.map(function(w){return '<span class="dh">'+w+'</span>'}).join('');
   for(var b=0;b<wdIdx(dates[0]);b++)h+='<span></span>';
-  var logged=0,sum=0;
+  var logged=0,sum=0,cnt=0;
   dates.forEach(function(s2,i){
-    var dd=S.days[s2],t=sumDay(dd),has=t.kcal>0,cls=(has?' has':'')+(has?(t.kcal>g.kcal?' over':' ok'):'')+(s2===today?' today':'')+((S.calSel?s2===S.calSel:s2===S.date)?' sel':'');
-    if(has){logged++;sum+=t.kcal}
-    h+='<button class="'+cls.trim()+'" data-cal="'+s2+'" aria-label="'+(i+1)+'. '+MONTHS[mo-1]+(has?', '+fmt(t.kcal)+' kcal':', nichts eingetragen')+'"><b>'+(i+1)+'</b><small>'+(has?fmt(t.kcal):(dd.weight>0?'kg':'·'))+'</small></button>';
+    var dd=S.days[s2],t=sumDay(dd,s2),has=t.kcal>0,cls=(has?' has':'')+(t.pauschal?' pa':'')+(has?(t.kcal>g.kcal?' over':' ok'):'')+(s2===today?' today':'')+((S.calSel?s2===S.calSel:s2===S.date)?' sel':'');
+    if(has){sum+=t.kcal;cnt++;if(!t.pauschal)logged++}
+    h+='<button class="'+cls.trim()+'" data-cal="'+s2+'" aria-label="'+(i+1)+'. '+MONTHS[mo-1]+(has?', '+fmt(t.kcal)+' kcal'+(t.pauschal?' (pauschal, nicht getrackt)':''):', nichts eingetragen')+'"><b>'+(i+1)+'</b><small>'+(has?fmt(t.kcal):(dd.weight>0?'kg':'·'))+'</small></button>';
   });
   h+='</div>';
-  h+='<div class="stat" style="margin-top:14px"><div><b>'+logged+'/'+n+'</b><span>Tage erfasst</span></div><div><b>'+fmt(logged?sum/logged:0)+'</b><span>Ø kcal / Tag</span></div><div><b>'+fmt(sum)+'</b><span>kcal im Monat</span></div></div>';
+  h+='<div class="stat" style="margin-top:14px"><div><b>'+logged+'/'+n+'</b><span>Tage erfasst</span></div><div><b>'+fmt(cnt?sum/cnt:0)+'</b><span>Ø kcal / Tag</span></div><div><b>'+fmt(sum)+'</b><span>kcal im Monat</span></div></div>';
   var a7=avgIntake(7),a30=avgIntake(30);
   h+='<div class="stat" style="margin-top:8px"><div><b>'+fmt(a7.avg)+'</b><span>Ø 7 Tage</span></div><div><b>'+fmt(a30.avg)+'</b><span>Ø 30 Tage</span></div><div><b>'+fmt(num(g.rest)+num(g.active))+'</b><span>Verbrauch / Tag</span></div></div>';
-  h+='<div class="hint" style="margin-top:8px">Grün: Tag auf oder unter dem Ziel. Rot: über dem Ziel. Die Durchschnitte zählen ohne den heutigen Tag. Tippe auf einen Tag in der Zukunft für die Gewichtsprognose.</div>';
+  h+='<div class="hint" style="margin-top:8px">Grün: Tag auf oder unter dem Ziel. Rot: über dem Ziel. Gestrichelt mit *: nicht getrackt, pauschal '+fmt(PAUSCHAL_KCAL)+' kcal. Die Durchschnitte zählen ohne den heutigen Tag. Tippe auf einen Tag in der Zukunft für die Gewichtsprognose.</div>';
   if(S.calSel&&S.calSel>today){h+=await forecastHtml(S.calSel);if(S.tab!=='woche'||S.calM!==ym)return}
   $('#app').innerHTML=h;
 }
